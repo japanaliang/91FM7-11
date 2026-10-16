@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超商寄件單多筆批次裁切工具 v3.1 (7-11 / 全家)</title>
+    <!-- PDF.js 核心與 Worker -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- pdf-lib PDF 處理庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #0071e3;
+            --primary-hover: #005bb5;
+            --bg-color: #f5f5f7;
+            --card-bg: #ffffff;
+            --border-color: #d2d2d7;
+            --text-color: #1d1d1f;
+            --text-secondary: #86868b;
+            --success-color: #34c759;
+            --711-color: #008000;
+            --family-color: #00a0e9;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 960px;
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            padding: 32px;
+        }
+
+        header {
+            margin-bottom: 24px;
+            border-bottom: 1px solid #e5e5ea;
+            padding-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-color);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 500;
+            color: white;
+        }
+        .badge-711 { background-color: var(--711-color); }
+        .badge-family { background-color: var(--family-color); }
+
+        p.description {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--primary-color);
+            background-color: rgba(0, 113, 227, 0.03);
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-bottom: 24px;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover {
+            background-color: rgba(0, 113, 227, 0.08);
+            border-color: var(--primary-hover);
+        }
+
+        .drop-zone p {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+
+        .drop-zone span {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        #fileInput { display: none; }
+
+        .action-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 12px;
+        }
+
+        .btn {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover { background-color: var(--primary-hover); }
+        .btn:disabled { background-color: var(--border-color); cursor: not-allowed; }
+
+        .btn-secondary {
+            background-color: #e5e5ea;
+            color: var(--text-color);
+        }
+
+        .btn-secondary:hover { background-color: #d1d1d6; }
+
+        .progress-container {
+            display: none;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar-bg {
+            height: 8px;
+            background-color: #e5e5ea;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background-color: var(--primary-color);
+            transition: width 0.2s ease;
+        }
+
+        .progress-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .file-list { margin-bottom: 24px; }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #f9f9fb;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .file-status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: #e5e5ea;
+        }
+
+        .file-status.ready { background: #d0f0fd; color: #0c5460; }
+        .file-status.done { background: #d4edda; color: #155724; }
+
+        .preview-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 16px;
+            max-height: 520px;
+            overflow-y: auto;
+            padding: 12px;
+            background: #fafafa;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+        }
+
+        .preview-card {
+            background: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px;
+            text-align: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+        }
+
+        .preview-card img {
+            width: 100%;
+            height: auto;
+            aspect-ratio: 101.6 / 152.4;
+            object-fit: contain;
+            border: 1px dashed #ccc;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            background: #fff;
+        }
+
+        .preview-card span {
+            font-size: 12px;
+            color: var(--text-secondary);
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>
+            超商寄件單 4x6 多筆批次裁切工具
+            <span class="badge" style="background-color: #6e5aa6;">多筆版 v3.1</span>
+            <span class="badge badge-711">7-ELEVEN</span>
+            <span class="badge badge-family">全家 FamilyMart</span>
+        </h1>
+        <p class="description">
+            支援單一 PDF 多頁、多筆（每頁 2 × 2）寄件單。優先辨識完整實線外框，保留 QRCode、服務代碼、物流條碼、繳費期限、廠商／訂單／寄件人與注意事項；自動排除頁首、網址與外側裁切虛線，並以四周 5mm 留白輸出 4x6 吋 (101.6mm × 152.4mm) PDF。
+        </p>
+    </header>
+
+    <div class="drop-zone" id="dropZone">
+        <div style="font-size: 40px; margin-bottom: 8px;">📦</div>
+        <p>點擊上傳或將多個 PDF 檔案拖曳至此處</p>
+        <span>支援批次處理多個 7-11 交貨便 / 全家店到店 PDF</span>
+        <input type="file" id="fileInput" multiple accept="application/pdf">
+    </div>
+
+    <div class="file-list" id="fileList"></div>
+
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-bar-bg">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-text">
+            <span id="progressStatus">正在準備處理...</span>
+            <span id="progressPercent">0%</span>
+        </div>
+    </div>
+
+    <div class="action-bar">
+        <button class="btn btn-secondary" id="btnClear" onclick="clearFiles()">清除所有檔案</button>
+        <button class="btn" id="btnProcess" onclick="processAllPDFs()" disabled>開始極致滿版裁切</button>
+        <button class="btn" id="btnDownload" onclick="downloadCombinedPDF()" style="display:none; background-color: var(--success-color);">
+            ⬇️ 下載 4x6 滿版合併 PDF
+        </button>
+    </div>
+
+    <div id="previewSection" style="display: none; margin-top: 24px;">
+        <div class="preview-header">
+            <span>裁切成品預覽 (<span id="labelCount">0</span> 張)</span>
+            <span style="font-size: 13px; color: var(--text-secondary);">標準規格：4x6 吋 (101.6mm × 152.4mm)，已扣除 5mm 留白</span>
+        </div>
+        <div class="preview-grid" id="previewGrid"></div>
+    </div>
+</div>
+
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let uploadedFiles = [];
+    let croppedLabelsData = [];
+    let mergedPdfDoc = null;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileList = document.getElementById('fileList');
+    const btnProcess = document.getElementById('btnProcess');
+    const btnDownload = document.getElementById('btnDownload');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressStatus = document.getElementById('progressStatus');
+    const progressPercent = document.getElementById('progressPercent');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFiles(e.target.files);
+    });
+
+    function handleFiles(files) {
+        for (let file of files) {
+            if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+                if (!uploadedFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    uploadedFiles.push(file);
+                }
+            }
+        }
+        updateFileList();
+        btnProcess.disabled = uploadedFiles.length === 0;
+    }
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+        uploadedFiles.forEach((file, idx) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `
+                <div>📄 <strong>${file.name}</strong> (${(file.size / 1024).toFixed(1)} KB)</div>
+                <span class="file-status ready" id="status-${idx}">等待處理</span>
+            `;
+            fileList.appendChild(div);
+        });
+    }
+
+    function clearFiles() {
+        uploadedFiles = [];
+        croppedLabelsData = [];
+        mergedPdfDoc = null;
+        fileInput.value = '';
+        fileList.innerHTML = '';
+        btnProcess.disabled = true;
+        btnDownload.style.display = 'none';
+        document.getElementById('previewSection').style.display = 'none';
+        progressContainer.style.display = 'none';
+    }
+
+    async function processAllPDFs() {
+        if (uploadedFiles.length === 0) return;
+
+        btnProcess.disabled = true;
+        btnDownload.style.display = 'none';
+        progressContainer.style.display = 'block';
+        croppedLabelsData = [];
+        document.getElementById('previewGrid').innerHTML = '';
+
+        let totalFiles = uploadedFiles.length;
+        
+        for (let i = 0; i < totalFiles; i++) {
+            const file = uploadedFiles[i];
+            const statusElem = document.getElementById(`status-${i}`);
+            if (statusElem) statusElem.innerText = '分析裁切中...';
+
+            updateProgress((i / totalFiles) * 100, `正在極致滿版裁切 (${i + 1}/${totalFiles})：${file.name}`);
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const labels = await extractLabelsFromPDF(arrayBuffer, file.name);
+                croppedLabelsData.push(...labels);
+
+                if (statusElem) {
+                    statusElem.innerText = `完成 (擷取 ${labels.length} 張單據)`;
+                    statusElem.className = 'file-status done';
+                }
+            } catch (err) {
+                console.error(`處理檔案 ${file.name} 失敗:`, err);
+                if (statusElem) {
+                    statusElem.innerText = '處理失敗';
+                    statusElem.style.background = '#f8d7da';
+                    statusElem.style.color = '#721c24';
+                }
+            }
+        }
+
+        updateProgress(90, '正在生成 101.6mm x 152.4mm (5mm 留白) PDF...');
+
+        if (croppedLabelsData.length > 0) {
+            await buildCombinedPDF();
+            updateProgress(100, '處理完成！');
+            renderPreviews();
+            btnDownload.style.display = 'inline-flex';
+        } else {
+            alert('未能在檔案中偵測到有效的寄件單標籤！');
+        }
+
+        btnProcess.disabled = false;
+    }
+
+    function updateProgress(percent, text) {
+        progressBar.style.width = `${percent}%`;
+        progressPercent.innerText = `${Math.round(percent)}%`;
+        progressStatus.innerText = text;
+    }
+
+    async function extractLabelsFromPDF(arrayBuffer, fileName) {
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdfDoc = await loadingTask.promise;
+        const extractedLabels = [];
+        const scale = 4.0; // 高解析度 (~300 DPI)
+
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+            const page = await pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: scale });
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            // 【修復關鍵 1】：先行填充純白底色，防止向量 PDF (7-11) 的背景透明問題
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+            // 先直接在整頁找出所有完整實線外框，可處理版面未落在紙張正中央的 7-11 多筆單。
+            const pageImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const frames = findAllSolidFrameBounds(pageImage.data, canvas.width, canvas.height);
+
+            if (frames.length > 0) {
+                const padX = Math.max(2, Math.floor(canvas.width * 0.0025));
+                const padY = Math.max(2, Math.floor(canvas.height * 0.0025));
+
+                frames.forEach((frame, frameIndex) => {
+                    const minX = Math.max(0, frame.minX - padX);
+                    const minY = Math.max(0, frame.minY - padY);
+                    const maxX = Math.min(canvas.width, frame.maxX + padX);
+                    const maxY = Math.min(canvas.height, frame.maxY + padY);
+
+                    extractedLabels.push({
+                        fileName,
+                        page: pageNum,
+                        pos: `第 ${frameIndex + 1} 張`,
+                        canvas: copyCanvasRegion(
+                            canvas,
+                            minX,
+                            minY,
+                            maxX - minX,
+                            maxY - minY
+                        )
+                    });
+                });
+                continue;
+            }
+
+            // 找不到完整矩形時，回退為 2 欄 × 2 列逐格掃描，兼容非標準或低畫質 PDF。
+            const positions = [
+                ['左上', '右上'],
+                ['左下', '右下']
+            ];
+
+            for (let row = 0; row < 2; row++) {
+                const y0 = Math.floor((canvas.height * row) / 2);
+                const y1 = Math.floor((canvas.height * (row + 1)) / 2);
+
+                for (let col = 0; col < 2; col++) {
+                    const x0 = Math.floor((canvas.width * col) / 2);
+                    const x1 = Math.floor((canvas.width * (col + 1)) / 2);
+                    const label = cropLabelRegion(canvas, ctx, x0, y0, x1 - x0, y1 - y0);
+
+                    if (label) {
+                        extractedLabels.push({
+                            fileName,
+                            page: pageNum,
+                            pos: positions[row][col],
+                            canvas: label
+                        });
+                    }
+                }
+            }
+        }
+
+        return extractedLabels;
+    }
+
+    function isDarkPixel(data, width, x, y) {
+        if (x < 0 || x >= width || y < 0) return false;
+        const i = (y * width + x) * 4;
+        return data[i + 3] > 128 && data[i] < 190 && data[i + 1] < 190 && data[i + 2] < 190;
+    }
+
+    // 尋找所有「上下為長實線、左右為連續實線」的寄件單外框。
+    // 7-11 與全家的外框都符合此特徵；外側裁切虛線不會形成連續矩形。
+    function findAllSolidFrameBounds(data, width, height) {
+        const minHorizontalRun = Math.floor(width * 0.25);
+        const rowCandidates = [];
+
+        for (let y = 0; y < height; y++) {
+            let runStart = -1;
+
+            for (let x = 0; x <= width; x++) {
+                const dark = x < width && isDarkPixel(data, width, x, y);
+
+                if (dark && runStart < 0) {
+                    runStart = x;
+                } else if (!dark && runStart >= 0) {
+                    if (x - runStart >= minHorizontalRun) {
+                        rowCandidates.push({ y, x0: runStart, x1: x });
+                    }
+                    runStart = -1;
+                }
+            }
+        }
+
+        if (rowCandidates.length < 2) return [];
+
+        // 同一條有厚度的橫線合併為一組；同一列的左右兩條外框必須分開保留。
+        const groups = [];
+        const endpointTolerance = Math.max(4, Math.round(width * 0.01));
+
+        for (const candidate of rowCandidates) {
+            let matchedGroup = null;
+            let bestDistance = Infinity;
+
+            for (const group of groups) {
+                const last = group[group.length - 1];
+                if (candidate.y - last.y > 2) continue;
+
+                const distance = Math.abs(candidate.x0 - last.x0) + Math.abs(candidate.x1 - last.x1);
+                if (
+                    Math.abs(candidate.x0 - last.x0) <= endpointTolerance &&
+                    Math.abs(candidate.x1 - last.x1) <= endpointTolerance &&
+                    distance < bestDistance
+                ) {
+                    matchedGroup = group;
+                    bestDistance = distance;
+                }
+            }
+
+            if (matchedGroup) matchedGroup.push(candidate);
+            else groups.push([candidate]);
+        }
+
+        const lines = groups.map(group => {
+            let representative = group[0];
+            for (const item of group) {
+                if (item.x1 - item.x0 > representative.x1 - representative.x0) {
+                    representative = item;
+                }
+            }
+            return {
+                y0: group[0].y,
+                y1: group[group.length - 1].y + 1,
+                x0: representative.x0,
+                x1: representative.x1
+            };
+        });
+
+        function edgeContinuity(x, y0, y1) {
+            // 容許 PDF 抗鋸齒造成邊線落在相鄰像素。
+            const radius = Math.max(2, Math.round(width * 0.0015));
+            let coveredRows = 0;
+            let currentGap = 0;
+            let maxGap = 0;
+            const totalRows = Math.max(1, y1 - y0);
+
+            for (let y = y0; y < y1; y++) {
+                let found = false;
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (isDarkPixel(data, width, x + dx, y)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) {
+                    coveredRows++;
+                    currentGap = 0;
+                } else {
+                    currentGap++;
+                    maxGap = Math.max(maxGap, currentGap);
+                }
+            }
+            return {
+                coverage: coveredRows / totalRows,
+                maxGap
+            };
+        }
+
+        const candidates = [];
+
+        for (let i = 0; i < lines.length - 1; i++) {
+            const top = lines[i];
+            const topWidth = top.x1 - top.x0;
+
+            for (let j = i + 1; j < lines.length; j++) {
+                const bottom = lines[j];
+                const bottomWidth = bottom.x1 - bottom.x0;
+                const frameHeight = bottom.y1 - top.y0;
+
+                if (frameHeight < height * 0.25) continue;
+                if (Math.abs(topWidth - bottomWidth) > width * 0.035) continue;
+                if (Math.abs(top.x0 - bottom.x0) > width * 0.025) continue;
+                if (Math.abs(top.x1 - bottom.x1) > width * 0.025) continue;
+
+                const leftX = Math.round((top.x0 + bottom.x0) / 2);
+                const rightX = Math.round((top.x1 + bottom.x1) / 2) - 1;
+                const leftEdge = edgeContinuity(leftX, top.y0, bottom.y1);
+                const rightEdge = edgeContinuity(rightX, top.y0, bottom.y1);
+                const maxAllowedGap = Math.max(8, Math.round(frameHeight * 0.015));
+
+                // 真正外框的左右邊幾乎連續；跨越上下兩張的假大框會在中間產生明顯斷點。
+                if (Math.min(leftEdge.coverage, rightEdge.coverage) < 0.985) continue;
+                if (Math.max(leftEdge.maxGap, rightEdge.maxGap) > maxAllowedGap) continue;
+
+                const area = ((topWidth + bottomWidth) / 2) * frameHeight;
+                candidates.push({
+                    minX: Math.min(top.x0, bottom.x0),
+                    minY: top.y0,
+                    maxX: Math.max(top.x1, bottom.x1),
+                    maxY: bottom.y1,
+                    area
+                });
+            }
+        }
+
+        // 先保留面積最大的外框，再排除完全包在其中的內部表格區塊。
+        candidates.sort((a, b) => b.area - a.area);
+        const tolerance = Math.max(4, Math.round(width * 0.005));
+        const frames = [];
+
+        for (const candidate of candidates) {
+            const isInsideExisting = frames.some(frame =>
+                candidate.minX >= frame.minX - tolerance &&
+                candidate.minY >= frame.minY - tolerance &&
+                candidate.maxX <= frame.maxX + tolerance &&
+                candidate.maxY <= frame.maxY + tolerance
+            );
+            if (!isInsideExisting) frames.push(candidate);
+        }
+
+        // 固定為閱讀順序：由上到下，同一列由左到右。
+        frames.sort((a, b) => {
+            const rowTolerance = Math.max(a.maxY - a.minY, b.maxY - b.minY) * 0.25;
+            if (Math.abs(a.minY - b.minY) <= rowTolerance) return a.minX - b.minX;
+            return a.minY - b.minY;
+        });
+        return frames;
+    }
+
+    function findSolidFrameBounds(data, width, height) {
+        const frames = findAllSolidFrameBounds(data, width, height);
+        if (frames.length === 0) return null;
+        return frames.reduce((largest, frame) => frame.area > largest.area ? frame : largest);
+    }
+
+    function copyCanvasRegion(sourceCanvas, sx, sy, sw, sh) {
+        const cropW = Math.max(1, Math.round(sw));
+        const cropH = Math.max(1, Math.round(sh));
+        const croppedCanvas = document.createElement('canvas');
+        croppedCanvas.width = cropW;
+        croppedCanvas.height = cropH;
+        const cropCtx = croppedCanvas.getContext('2d');
+
+        // 白底可避免透明 PDF 在輸出 PNG／PDF 時變成黑底。
+        cropCtx.fillStyle = '#ffffff';
+        cropCtx.fillRect(0, 0, cropW, cropH);
+        cropCtx.drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, cropW, cropH);
+        return croppedCanvas;
+    }
+
+    // 核心演算法：先找完整實線外框；找不到才回退到像素密度與聚類分析。
+    function cropLabelRegion(sourceCanvas, sourceCtx, rx, ry, rw, rh) {
+        const imgData = sourceCtx.getImageData(rx, ry, rw, rh);
+        const data = imgData.data;
+
+        const frame = findSolidFrameBounds(data, rw, rh);
+        if (frame) {
+            // 保留外框外側約 0.5% 的白邊，避免列印或抗鋸齒吃掉框線；
+            // 此距離仍遠小於 7-11 右側與下方裁切虛線的間距。
+            const padX = Math.max(2, Math.floor(rw * 0.005));
+            const padY = Math.max(2, Math.floor(rh * 0.005));
+            const minX = Math.max(0, frame.minX - padX);
+            const minY = Math.max(0, frame.minY - padY);
+            const maxX = Math.min(rw, frame.maxX + padX);
+            const maxY = Math.min(rh, frame.maxY + padY);
+
+            return copyCanvasRegion(
+                sourceCanvas,
+                rx + minX,
+                ry + minY,
+                maxX - minX,
+                maxY - minY
+            );
+        }
+
+        const step = 2;
+        const sampleW = Math.floor(rw / step);
+        const sampleH = Math.floor(rh / step);
+
+        const rowCounts = new Array(sampleH).fill(0);
+
+        // 1. 統計每一列的深色像素數量（【修復關鍵 2】：忽略 Alpha 通道為 0 的透明像素）
+        for (let y = 0; y < sampleH; y++) {
+            for (let x = 0; x < sampleW; x++) {
+                const origX = x * step;
+                const origY = y * step;
+                const i = (origY * rw + origX) * 4;
+                const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+                if (a > 128 && r < 200 && g < 200 && b < 200) {
+                    rowCounts[y]++;
+                }
+            }
+        }
+
+        // 2. 設定門檻以過濾掉孤立的標頭文字列 (只保留連續且有強度的深色區域)
+        const rowThresh = sampleW * 0.015;
+        let validRows = [];
+        for (let y = 0; y < sampleH; y++) {
+            if (rowCounts[y] > rowThresh) {
+                validRows.push(y);
+            }
+        }
+
+        if (validRows.length === 0) return null;
+
+        // 3. 垂直方向聚類分析，抓出最大高度的「主要寄件單框區域」（排除頂部日期與底部網址）
+        let clusters = [];
+        let currentCluster = [validRows[0]];
+
+        for (let i = 1; i < validRows.length; i++) {
+            if (validRows[i] - validRows[i-1] <= 20) { 
+                currentCluster.push(validRows[i]);
+            } else {
+                clusters.push(currentCluster);
+                currentCluster = [validRows[i]];
+            }
+        }
+        clusters.push(currentCluster);
+
+        let mainCluster = clusters[0];
+        let maxHeight = mainCluster[mainCluster.length - 1] - mainCluster[0];
+
+        for (let c of clusters) {
+            let h = c[c.length - 1] - c[0];
+            if (h > maxHeight) {
+                maxHeight = h;
+                mainCluster = c;
+            }
+        }
+
+        // 當主要區塊太小，代表這半頁是空的
+        if (maxHeight < sampleH * 0.2) return null;
+
+        let minY = mainCluster[0] * step;
+        let maxY = mainCluster[mainCluster.length - 1] * step;
+
+        // 4. 僅在主框的高度範圍內 (minY ~ maxY) 統計欄位深色像素，避開側邊虛線
+        const colCounts = new Array(sampleW).fill(0);
+        for (let y = Math.floor(minY / step); y <= Math.floor(maxY / step); y++) {
+            for (let x = 0; x < sampleW; x++) {
+                const origX = x * step;
+                const origY = y * step;
+                const i = (origY * rw + origX) * 4;
+                const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+                if (a > 128 && r < 200 && g < 200 && b < 200) {
+                    colCounts[x]++;
+                }
+            }
+        }
+
+        const colThresh = ((maxY - minY) / step) * 0.015;
+        let validCols = [];
+        for (let x = 0; x < sampleW; x++) {
+            if (colCounts[x] > colThresh) {
+                validCols.push(x);
+            }
+        }
+
+        if (validCols.length === 0) return null;
+
+        // 水平方向聚類分析（間隔小於 10 歸為同群），精準分離出主框與獨立虛線
+        let colClusters = [];
+        let currColCluster = [validCols[0]];
+        for (let i = 1; i < validCols.length; i++) {
+            if (validCols[i] - validCols[i-1] <= 10) {
+                currColCluster.push(validCols[i]);
+            } else {
+                colClusters.push(currColCluster);
+                currColCluster = [validCols[i]];
+            }
+        }
+        colClusters.push(currColCluster);
+
+        // 取總像素權重最高的欄區塊（即寄件單主黑框，剔除右側細虛線）
+        let mainColCluster = colClusters[0];
+        let maxWeight = 0;
+        for (let cc of colClusters) {
+            let weight = 0;
+            for (let x of cc) weight += colCounts[x];
+            if (weight > maxWeight) {
+                maxWeight = weight;
+                mainColCluster = cc;
+            }
+        }
+
+        let minX = mainColCluster[0] * step;
+        let maxX = mainColCluster[mainColCluster.length - 1] * step;
+
+        // 加入 0.5% 微量安全邊界（緊貼框線）
+        const padX = Math.floor(rw * 0.005);
+        const padY = Math.floor(rh * 0.005);
+
+        minX = Math.max(0, minX - padX);
+        minY = Math.max(0, minY - padY);
+        maxX = Math.min(rw, maxX + padX);
+        maxY = Math.min(rh, maxY + padY);
+
+        const cropW = maxX - minX;
+        const cropH = maxY - minY;
+
+        if (cropW <= 50 || cropH <= 50) return null;
+
+        return copyCanvasRegion(sourceCanvas, rx + minX, ry + minY, cropW, cropH);
+    }
+
+    // 將所有標籤繪製到 4x6 吋 PDF，並保留 5mm 出血 margin
+    async function buildCombinedPDF() {
+        const { PDFDocument } = PDFLib;
+        mergedPdfDoc = await PDFDocument.create();
+
+        // 單位轉換：1 mm = 2.83465 Points
+        const mmToPt = 72 / 25.4;
+        
+        // 紙張尺寸：101.6mm x 152.4mm
+        const pageWidth = 101.6 * mmToPt;  // 288 pt
+        const pageHeight = 152.4 * mmToPt; // 432 pt
+
+        // 預設四周留白 5mm
+        const marginPt = 5.0 * mmToPt;     // 約 14.17 pt
+
+        // 可用列印最大範圍
+        const availWidth = pageWidth - (marginPt * 2);  // ~259.66 pt
+        const availHeight = pageHeight - (marginPt * 2); // ~403.66 pt
+
+        for (let item of croppedLabelsData) {
+            const page = mergedPdfDoc.addPage([pageWidth, pageHeight]);
+
+            const pngDataUrl = item.canvas.toDataURL('image/png');
+            const pngImage = await mergedPdfDoc.embedPng(pngDataUrl);
+
+            // 計算在 5mm 留白限制下的最大比例放大
+            const scale = Math.min(
+                availWidth / pngImage.width,
+                availHeight / pngImage.height
+            );
+
+            const drawWidth = pngImage.width * scale;
+            const drawHeight = pngImage.height * scale;
+
+            // 居中置放於可列印區域內
+            const x = (pageWidth - drawWidth) / 2;
+            const y = (pageHeight - drawHeight) / 2;
+
+            page.drawImage(pngImage, {
+                x: x,
+                y: y,
+                width: drawWidth,
+                height: drawHeight
+            });
+        }
+    }
+
+    function renderPreviews() {
+        const previewSection = document.getElementById('previewSection');
+        const previewGrid = document.getElementById('previewGrid');
+        const labelCount = document.getElementById('labelCount');
+
+        previewGrid.innerHTML = '';
+        labelCount.innerText = croppedLabelsData.length;
+        previewSection.style.display = 'block';
+
+        croppedLabelsData.forEach((item, index) => {
+            const card = document.createElement('div');
+            card.className = 'preview-card';
+
+            const img = document.createElement('img');
+            img.src = item.canvas.toDataURL('image/png');
+
+            const span = document.createElement('span');
+            span.innerText = `#${index + 1}｜第 ${item.page} 頁 ${item.pos}`;
+
+            card.appendChild(img);
+            card.appendChild(span);
+            previewGrid.appendChild(card);
+        });
+    }
+
+    async function downloadCombinedPDF() {
+        if (!mergedPdfDoc) return;
+        const pdfBytes = await mergedPdfDoc.save();
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        
+        const now = new Date();
+        const timeStr = now.toISOString().slice(0, 10) + '_' + now.toTimeString().slice(0, 8).replace(/:/g, '');
+        link.download = `超商4x6極致滿版標籤_${timeStr}.pdf`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
